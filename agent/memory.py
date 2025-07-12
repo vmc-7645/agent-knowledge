@@ -37,3 +37,4 @@ async def search_similar_answers(text, embedding):
         r = await c.post(f"{API}/search-answer",
                          json={"content": text, "embedding": embedding})
     return r.json()["id"]
+
