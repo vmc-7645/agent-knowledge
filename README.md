@@ -17,6 +17,25 @@ python -m pip install --upgrade pip
 
 # 4. Install weave (and others)
 pip install -r requirements.txt
+
+# 5. Start the database
+docker-compose up -d
+```
+
+# Running
+
+```bash
+# 1. Run the server
+uvicorn server.main:app --reload
+
+# 2. Run the agent
+python agent/agent_runner.py
+
+# 3. (optional) Run multiple agents
+python agent/agent_runner.py --persona "terrence tau"
+python agent/agent_runner.py --persona "sam altman"
+python agent/agent_runner.py --persona "kim kardashian"
+python agent/agent_runner.py --persona "brad pitt"
 ```
 
 # Workflow
@@ -29,10 +48,10 @@ Agent (agent/):
 
 Server (server/):
 - Offers REST endpoints for:
-- /add-question
-- /search-question
-- /add-context
-- /search-context
+- `/add-question` - add a new question to the DB
+- `/search-question` - search for a question in the DB
+- `/add-context` - add a new context to the DB
+- `/search-context` - search for a context in the DB
 - Handles pgvector queries, embedding storage, result scoring
 
 Communication:
