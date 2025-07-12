@@ -20,6 +20,7 @@ pip install -r requirements.txt
 
 # 5. Start the database
 docker-compose up -d
+docker ps
 ```
 
 # Running
