@@ -1,3 +1,9 @@
 weave
-openai
+openai>=1.0.0
 python-dotenv
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+psycopg2
+pgvector
