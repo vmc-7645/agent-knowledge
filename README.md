@@ -1,6 +1,6 @@
 
 
-Setup
+# Setup
 
 ```bash
 # 1. Create a virtual environment
@@ -19,8 +19,27 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+# Workflow
 
+Agent (agent/):
+- Queries context/questions from pgvector (via memory.py)
+- Adds new data to DB when it discovers or generates new knowledge
+- Embeds with embedding_utils.py using OpenAI or local model
+- Interacts through Weave API to get/expose function calls
 
+Server (server/):
+- Offers REST endpoints for:
+- /add-question
+- /search-question
+- /add-context
+- /search-context
+- Handles pgvector queries, embedding storage, result scoring
+
+Communication:
+- Use httpx inside the agent to talk to your FastAPI backend
+- Or share a Python module (agent/shared_db.py) to call directly
+
+# Database
 
 db schema used in hackathon
 
