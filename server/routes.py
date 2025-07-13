@@ -66,20 +66,24 @@ def _vector_param(embedding: List[float]) -> List[float]:
 # Routes
 # -----------------------------------------------------------------------------
 
-@router.post("/add-question", response_model=QuestionOut, status_code=status.HTTP_201_CREATED)
-async def add_question_endpoint(payload: QuestionCreate, db: Session = Depends(get_db)):
-    """Embed *payload.content* and store it using the `add_question` DB function."""
+@router.post("/add-question", response_model=QuestionOut,
+             status_code=status.HTTP_201_CREATED)
+async def add_question_endpoint(payload: QuestionCreate,
+                                db: Session = Depends(get_db)):
     embedding = get_embedding(payload.content)
 
-    # Call the SQL helper function. We rely on pgvector's auto-casting for the vector param.
-    stmt = text("SELECT add_question(:content, :embedding) AS id")
-    result = db.execute(stmt.bindparams(content=payload.content, embedding=_vector_param(embedding))).fetchone()
+    # 👇  pass the list directly, no custom _vector_param
+    row = db.execute(
+        text("SELECT add_question(:content, :embedding) AS id"),
+        {"content": payload.content, "embedding": embedding},
+    ).fetchone()
 
-    if result is None:
-        raise HTTPException(status_code=500, detail="Failed to insert question")
+    if row is None:
+        raise HTTPException(500, "Failed to insert question")
 
     db.commit()
-    return QuestionOut(id=result.id)
+    return QuestionOut(id=row.id)
+
 
 
 class SearchQuestionIn(BaseModel):
@@ -100,20 +104,34 @@ def search_question_endpoint(req: SearchQuestionIn, db=Depends(get_db)):
 
 # server/routes.py  – inside add_answer_endpoint
 @router.post("/add-answer", status_code=201)
-def add_answer_endpoint(body: AnswerCreate, db=Depends(get_db)):
+def add_answer_endpoint(body: AnswerCreate, db: Session = Depends(get_db)):
+    # 1️⃣ Always get a real embedding
     emb = body.embedding or get_embedding(body.content)
-    new_id = db.execute(
-        text("SELECT add_answer(:ctx, :qid, :content, :emb, :sol)"),
+    if not emb or len(emb) != 1536:
+        raise HTTPException(500, "Embedding unavailable")
+
+    # 2️⃣ Direct INSERT … RETURNING id
+    row = db.execute(
+        text("""
+            INSERT INTO answer
+                (context_id, question_id, answer_content,
+                 vector_embedding, is_solution)
+            VALUES
+                (:ctx, :qid, :content, :emb, :sol)
+            RETURNING id
+        """),
         {
             "ctx": body.context_id,
             "qid": body.question_id,
             "content": body.content,
-            "emb": emb,
-            "sol": body.is_solution,
+            "emb": emb,        # FLOAT8[] → cast to VECTOR in SQL
+            "sol": body.is_solution or False,
         },
-    ).scalar_one()
+    ).fetchone()
+
     db.commit()
-    return {"id": new_id}      # <-- just return a dict, not AnswerOut
+    return {"id": row.id}
+
 
 
 import datetime
@@ -138,3 +156,27 @@ def answers_for_question(question_id: int, limit: int = 5, db=Depends(get_db)):
         )
         for r in rows
     ]
+
+# -------------------------------------------------
+# Mark an answer as the accepted solution
+# Sets is_solution = true on that row,
+# and false on other answers for the same question.
+# -------------------------------------------------
+class MarkSolutionIn(BaseModel):
+    answer_id: int
+
+@router.post("/mark-solution", status_code=200)
+def mark_solution_endpoint(body: MarkSolutionIn, db: Session = Depends(get_db)):
+    db.execute(
+        text("""
+            WITH q AS (
+               SELECT question_id FROM answer WHERE id = :aid
+            )
+            UPDATE answer
+            SET    is_solution = (id = :aid)
+            WHERE  question_id = (SELECT question_id FROM q)
+        """),
+        {"aid": body.answer_id},
+    )
+    db.commit()
+    return {"status": "ok"}

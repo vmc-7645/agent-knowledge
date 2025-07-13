@@ -48,7 +48,7 @@ $ docker exec -it pgvector-db psql -U postgres -d agentdb
 db=> \dx
  db=> \dt
 
--- Smoke‑test vector search
+-- Smoke-test vector search
 SELECT add_question('hello', random()::float8[][:1536]);
 SELECT * FROM search_questions(random()::float8[][:1536], 2);
 ```
