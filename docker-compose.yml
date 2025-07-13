@@ -1,12 +1,12 @@
 services:
   db:
-    image: ankane/pgvector
+    image: ankane/pgvector            # already has pgvector extension
     container_name: pgvector-db
     ports:
-      - "5432:5432"
+      - "6543:5432"   # hostPort:containerPort
     environment:
-      POSTGRES_DB: agentdb
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_DB: agentdb            # << database name you want
+      POSTGRES_USER: postgres         # default superuser
+      POSTGRES_PASSWORD: password     # << keep in .env too
     volumes:
-      - ./db/init:/docker-entrypoint-initdb.d
+      - ./db/init:/docker-entrypoint-initdb.d  # mounts SQL init dir
