@@ -45,6 +45,7 @@ class AnswerCreate(BaseModel):
     content: str = Field(..., description="Answer text")
     is_solution: bool = Field(False, description="Mark as accepted solution")
     context_id: Optional[int] = Field(None, description="Optional context row ID")
+    embedding: Optional[List[float]] = Field(None, description="Optional embedding")
 
 
 class AnswerOut(BaseModel):
@@ -81,50 +82,59 @@ async def add_question_endpoint(payload: QuestionCreate, db: Session = Depends(g
     return QuestionOut(id=result.id)
 
 
-@router.post("/search-question", response_model=List[QuestionSearchItem])
-async def search_question_endpoint(payload: QuestionSearchRequest, db: Session = Depends(get_db)):
-    """Return the *k* most similar questions to *payload.query*."""
-    embedding = get_embedding(payload.query)
+class SearchQuestionIn(BaseModel):
+    content: str
+    k: int = 5
+    embedding: List[float] | None = None
 
-    stmt = text("SELECT * FROM search_questions(:embedding, :k)")
+@router.post("/search-question")
+def search_question_endpoint(req: SearchQuestionIn, db=Depends(get_db)):
+    emb = req.embedding
+    if emb is None:
+        emb = get_embedding(req.content)
     rows = db.execute(
-        stmt.bindparams(embedding=_vector_param(embedding), k=payload.k)
+        text("SELECT * FROM search_questions(:embedding, :k)"),
+        {"embedding": emb, "k": req.k},
     ).fetchall()
+    return [{"id": r.id, "question_content": r.question_content, "distance": r.distance} for r in rows]
 
-    results = [
-        QuestionSearchItem(id=row.id, content=row.question_content, distance=row.distance)
-        for row in rows
-    ]
-    return results
-
-
-@router.post("/add-answer", response_model=AnswerOut, status_code=status.HTTP_201_CREATED)
-async def add_answer_endpoint(payload: AnswerCreate, db: Session = Depends(get_db)):
-    """Embed *payload.content* and store it using the `add_answer` DB function."""
-    embedding = get_embedding(payload.content)
-
-    stmt = text("""
-        SELECT add_answer(
-            :context_id,
-            :question_id,
-            :content,
-            :embedding,
-            :is_solution
-        ) AS id
-    """)
-
-    result = db.execute(
-        stmt.bindparams(
-            context_id=payload.context_id,
-            question_id=payload.question_id,
-            content=payload.content,
-            embedding=_vector_param(embedding),
-            is_solution=payload.is_solution,
-        )
-    ).fetchone()
-
-    if result is None:
-        raise HTTPException(status_code=500, detail="Failed to insert answer")
-
+# server/routes.py  – inside add_answer_endpoint
+@router.post("/add-answer", status_code=201)
+def add_answer_endpoint(body: AnswerCreate, db=Depends(get_db)):
+    emb = body.embedding or get_embedding(body.content)
+    new_id = db.execute(
+        text("SELECT add_answer(:ctx, :qid, :content, :emb, :sol)"),
+        {
+            "ctx": body.context_id,
+            "qid": body.question_id,
+            "content": body.content,
+            "emb": emb,
+            "sol": body.is_solution,
+        },
+    ).scalar_one()
     db.commit()
-    return AnswerOut(id=result.id)
+    return {"id": new_id}      # <-- just return a dict, not AnswerOut
+
+
+import datetime
+class AnswerOut(BaseModel):
+    id: int
+    answer_content: str
+    is_solution: bool
+    # created_at: datetime | None = None      # if you want the timestamp
+
+@router.get("/answers/{question_id}", response_model=list[AnswerOut])
+def answers_for_question(question_id: int, limit: int = 5, db=Depends(get_db)):
+    rows = db.execute(
+        text("SELECT * FROM answer_for_question(:qid, :lim)"),
+        {"qid": question_id, "lim": limit},
+    ).fetchall()
+    return [
+        AnswerOut(
+            id=r.id,
+            answer_content=r.answer_content,
+            is_solution=r.is_solution,
+            created_at=getattr(r, "created_at", None),
+        )
+        for r in rows
+    ]
